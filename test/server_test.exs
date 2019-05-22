@@ -6,10 +6,9 @@ defmodule Membrane.Server.Icecast.ServerTest do
   alias Membrane.Server.Icecast.Input
   alias Membrane.Server.Icecast.Output
 
-  alias Mint.HTTP1
+  alias Membrane.Server.Icecast.HTTP
 
   @receive_timeout 500
-  @output_machine_proc :output_machine_proc
   @body_timeout 200
   
   defmodule UsersDB do
@@ -44,20 +43,20 @@ defmodule Membrane.Server.Icecast.ServerTest do
     end
 
     def handle_payload(_address, payload, state) do
-      send(@output_machine_proc, {:payload, payload})
+      send(:output_machine_proc, {:payload, payload})
 
       {:ok, {:continue, state}}
     end
 
-    def handle_invalid(_address, _reason, state) do
+    def handle_invalid(_address, _reason, _state) do
       :ok
     end
 
-    def handle_timeout(_address, state) do
+    def handle_timeout(_address, _state) do
       :ok
     end
 
-    def handle_closed(_address, state) do
+    def handle_closed(_address, _state) do
       :ok
     end
 
@@ -66,7 +65,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
   defmodule OutputTestController do
 
     def handle_init(arg) do
-      :erlang.register(@output_machine_proc, self())
+      :erlang.register(:output_machine_proc, self())
       {:ok, arg}
     end
 
@@ -87,7 +86,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
     end
 
     def handle_invalid(_address, _reason, state) do
-      {:ok, state}
+      :ok
     end
 
   end
@@ -128,32 +127,32 @@ defmodule Membrane.Server.Icecast.ServerTest do
     input_port = Input.Listener.get_port!
     output_port = Output.Listener.get_port!
 
-    source_client = connect(input_port)
+    source_client = HTTP.connect(input_port)
 
-    client = connect(output_port)
+    client = HTTP.connect(output_port)
 
-    source_client = make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}], 200)
+    assert %{:status => 200} = make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
 
-    client = make_req(client, "GET", "/my_mountpoint", [], 200)
+
+    assert %{:status => 200} = make_req(client, "GET", "/my_mountpoint", [])
 
     payload = "I love you, Romeo"
 
     source_client
-    |> HTTP1.get_socket
     |> :gen_tcp.send(payload)
 
-    assert {:tcp, _, payload} = wait_for_tcp(client)
+    assert {:ok, payload} == :gen_tcp.recv(client, String.length(payload), @receive_timeout)
   end
 
   test "If nothing is streamed on mountpoint client hangs waiting for content" do
     input_port = Input.Listener.get_port!
     output_port = Output.Listener.get_port!
 
-    client = connect(output_port)
+    client = HTTP.connect(output_port)
 
-    client = make_req(client, "GET", "/nonexistent_mountpoint", [], 200)
+    %{:status => 200} = make_req(client, "GET", "/nonexistent_mountpoint", [])
 
-    assert {:error, :timeout_when_waiting_for_tcp} == wait_for_tcp(client)
+    assert {:error, :timeout} == :gen_tcp.recv(client, 0, @receive_timeout)
   end
 
   test "User with wrong password cannot stream", %{input_creds: input_creds} do
@@ -163,11 +162,11 @@ defmodule Membrane.Server.Icecast.ServerTest do
     input_port = Input.Listener.get_port!
     output_port = Output.Listener.get_port!
   
-    source_client = connect(input_port)
+    source_client = HTTP.connect(input_port)
   
-    client = connect(output_port)
+    client = HTTP.connect(output_port)
   
-    source_client = make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}], 401)
+    %{:status => 401} = make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
   end
 
   # TODO In original IceCast the connection is simpy closed (no http code returned
@@ -178,92 +177,54 @@ defmodule Membrane.Server.Icecast.ServerTest do
     input_port = Input.Listener.get_port!
     output_port = Output.Listener.get_port!
 
-    source_client = connect(input_port)
+    source_client = HTTP.connect(input_port)
 
-    client = connect(output_port)
+    client = HTTP.connect(output_port)
 
-    source_client = make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}], 200)
+    %{:status => 200} = make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
 
-    client = make_req(client, "GET", "/my_mountpoint", [], 200)
+    %{:status => 200} = make_req(client, "GET", "/my_mountpoint", [])
 
     payload = "I love you, Romeo"
     payload2 = "I really do"
 
     source_client
-    |> HTTP1.get_socket
     |> :gen_tcp.send(payload)
 
-    tcp_msg = wait_for_tcp(client)
+    assert {:ok, ^payload} = :gen_tcp.recv(client, String.length(payload), @receive_timeout)
 
     # Firstly we send the payload before the timeout goes off
     :timer.sleep(trunc(@body_timeout * 0.5))
 
     source_client
-    |> HTTP1.get_socket
     |> :gen_tcp.send(payload2)
 
-    tcp_msg = wait_for_tcp(client)
+    {:ok, payload2} = :gen_tcp.recv(client, String.length(payload2), @receive_timeout)
 
     # Then we would like to send the payload too late
     wait_for_timeout(@body_timeout)
 
-    tcp_msg = wait_for_tcp(source_client)
-    {:ok, _, responses} = HTTP1.stream(source_client, tcp_msg)
+    %{:status => 502, :headers => headers} = HTTP.get_http_response_status_headers(source_client)
 
-    assert_header(responses, {"connection", "close"})
-    assert_code(responses, 502)
+    assert Enum.member?(headers, {"connection", "close"})
   end
 
-
-  test "", %{input_creds: input_creds} do
-
-  end
 
 
   ###########
   # Helpers #
   ###########
 
-  defp connect(port) do
-    {:ok, conn} = HTTP1.connect(:http, "localhost", port)
-    conn |> HTTP1.get_socket() |> :inet.setopts([active: true])
-    conn
-  end
+  defp make_req(conn, method, mount, headers) do
+    req_string = HTTP.request(method, mount, headers)
+    :gen_tcp.send(conn, req_string)
 
-  defp make_req(conn, method, mount, headers, code) do
-    {:ok, conn, req_ref} =
-      HTTP1.request(conn, method, mount, headers, "") # TODO !!!! This changes option active to once! We can't rely on changing the option on socket!!! FIXME
-
-    tcp_msg = wait_for_tcp(conn)
-    {:ok, _, responses} = HTTP1.stream(conn, tcp_msg)
-    assert_code(responses, code)
-    conn |> HTTP1.get_socket() |> :inet.setopts([active: true])
-    conn
-  end
-
-  defp assert_code(responses, code) do
-    assert {:status, _, code} = responses |> List.keyfind(:status, 0)
-  end
-
-  defp assert_header(responses, {k, v} = header) do
-    {:headers, _, headers} = responses |> List.keyfind(:headers, 0)
-    assert {k, v} == headers |> List.keyfind(k, 0)
+    HTTP.get_http_response_status_headers(conn)
   end
 
   defp encode_user_pass({user, pass}) do
     plain = "#{user}:#{pass}"
     "Basic #{Base.encode64(plain)}"
-  end
-
-  defp wait_for_tcp(%Mint.HTTP1{socket: socket}) do
-    wait_for_tcp(socket)
-  end
-  defp wait_for_tcp(socket) do
-    receive do
-      {:tcp, ^socket, _} = e -> e
-    after
-      @receive_timeout -> {:error, :timeout_when_waiting_for_tcp}
-    end
   end
 
   defp unique(name), do: "#{name}_#{inspect(:erlang.monotonic_time())}"
