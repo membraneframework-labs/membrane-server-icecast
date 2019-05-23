@@ -169,11 +169,11 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
     client = HTTP.connect(output_port)
 
-    assert %{:status => 200} =
+    assert %{status: 200} =
       make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
 
 
-    assert %{:status => 200} =
+    assert %{status: 200} =
       make_req(client, "GET", "/my_mountpoint", [])
 
     payload = "I love you, Romeo"
@@ -190,7 +190,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
     client = HTTP.connect(output_port)
 
-    assert %{:status => 404, :headers => headers} =
+    assert %{status: 404, headers: headers} =
       make_req(client, "GET", "/nonexistent_mountpoint", [])
 
     assert headers |> Enum.member?({"content-type", "text/html"})
@@ -205,7 +205,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
   
     source_client = HTTP.connect(input_port)
   
-    %{:status => 401} =
+    %{status: 401} =
       make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
   end
 
@@ -220,10 +220,10 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
     client = HTTP.connect(output_port)
 
-    %{:status => 200} =
+    %{status: 200} =
       make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
 
-    %{:status => 200} =
+    %{status: 200} =
       make_req(client, "GET", "/my_mountpoint", [])
 
     payload = "I love you, Romeo"
@@ -246,13 +246,13 @@ defmodule Membrane.Server.Icecast.ServerTest do
     # Then we would like to send the payload too late
     wait_for_timeout(@body_timeout)
 
-    %{:status => 502, :headers => source_headers} =
+    %{status: 502, headers: source_headers} =
       HTTP.get_http_response(source_client)
 
     assert Enum.member?(source_headers, {"connection", "close"})
 
     # Client is being disconnected
-    %{:status => 502, :headers => client_headers} = HTTP.get_http_response(client)
+    %{status: 502, headers: client_headers} = HTTP.get_http_response(client)
 
     assert Enum.member?(client_headers, {"connection", "close"})
 
@@ -268,10 +268,10 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
     client = HTTP.connect(output_port)
 
-    %{:status => 200} =
+    %{status: 200} =
       make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
 
-    %{:status => 200, :headers => headers} =
+    %{status: 200, headers: headers} =
       make_req(client, "GET", "/my_mountpoint", [])
 
     assert headers |> Enum.member?({"content-type", "audio/mpeg"})
@@ -295,10 +295,10 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
     client = HTTP.connect(output_port)
 
-    %{:status => 200} =
+    %{status: 200} =
       make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/ogg"}, {"Authorization", basic_auth}])
 
-    %{:status => 200, :headers => headers} =
+    %{status: 200, headers: headers} =
       make_req(client, "GET", "/my_mountpoint", [])
 
     assert headers |> Enum.member?({"content-type", "audio/ogg"})
