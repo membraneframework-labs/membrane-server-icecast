@@ -87,6 +87,9 @@ defmodule Membrane.Server.Icecast.ServerTest do
       :ok
     end
 
+    def handle_closed(_address, %{my_mount: my_mount}) do
+      :ok = MountDB.unregister(my_mount)
+    end
     def handle_closed(_address, _state) do
       :ok
     end
@@ -149,7 +152,42 @@ defmodule Membrane.Server.Icecast.ServerTest do
     end
   end
 
-  
+
+  describe "Connection tests" do
+    setup do
+      {user, pass} = creds = {unique("Juliet"), "I<3Romeo"}
+      UsersDB.register(user, pass)
+
+      on_exit fn ->
+        UsersDB.unregister(user, pass)
+      end
+
+      %{mount: unique("/somemount"), input_creds: creds}
+    end
+
+    test "Source client reconnecting", %{input_creds: input_creds, mount: mount} do
+      basic_auth = encode_user_pass(input_creds)
+      input_port = Input.Listener.get_port!
+
+      source_client = HTTP.connect(input_port)
+
+      %{status: 200} =
+        make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+
+      HTTP.disconnect(source_client)
+
+      source_client = HTTP.connect(input_port)
+
+      assert %{status: 200} =
+        make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+
+      HTTP.disconnect(source_client)
+
+    end
+
+
+  end
+
 
   describe "When client logged in and connection established" do
 
