@@ -81,8 +81,8 @@ defmodule Membrane.Server.Icecast.ServerTest do
       :ok
     end
 
-    def handle_timeout(_address, state) do
-      {:ok, state}
+    def handle_timeout(_address, _state) do
+      :ok
     end
 
     def handle_invalid(_address, _reason, _state) do
@@ -99,7 +99,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
     Application.put_env(:membrane_server_icecast, :input_machine, InputMachine)
     Application.put_env(:membrane_server_icecast, :output_machine, OutputMachine)
 
-    {:ok, _} = Output.Listener.start_listener(0, OutputTestController)
+    {:ok, _} = Output.Listener.start_listener(0, OutputTestController, nil, body_timeout: @body_timeout)
     {:ok, _} = Input.Listener.start_listener(0, InputTestController, nil, body_timeout: @body_timeout)
 
     on_exit fn ->
@@ -131,10 +131,12 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
     client = HTTP.connect(output_port)
 
-    assert %{:status => 200} = make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+    assert %{:status => 200} =
+      make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
 
 
-    assert %{:status => 200} = make_req(client, "GET", "/my_mountpoint", [])
+    assert %{:status => 200} =
+      make_req(client, "GET", "/my_mountpoint", [])
 
     payload = "I love you, Romeo"
 
@@ -144,14 +146,17 @@ defmodule Membrane.Server.Icecast.ServerTest do
     assert {:ok, payload} == :gen_tcp.recv(client, String.length(payload), @receive_timeout)
   end
 
-  test "If nothing is streamed on mountpoint client hangs waiting for content" do
+  # TODO In original IceCast the connection is simpy closed (no http code returned)
+  test "If nothing is streamed on mountpoint client timeouts" do
     output_port = Output.Listener.get_port!
 
     client = HTTP.connect(output_port)
 
-    %{:status => 200} = make_req(client, "GET", "/nonexistent_mountpoint", [])
+    %{:status => 200} =
+      make_req(client, "GET", "/nonexistent_mountpoint", [])
 
-    assert {:error, :timeout} == :gen_tcp.recv(client, 0, @receive_timeout)
+    assert %{:status => 502} =
+      HTTP.get_http_response(client)
   end
 
   test "User with wrong password cannot stream", %{input_creds: input_creds} do
@@ -162,11 +167,12 @@ defmodule Membrane.Server.Icecast.ServerTest do
   
     source_client = HTTP.connect(input_port)
   
-    %{:status => 401} = make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+    %{:status => 401} =
+      make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
   end
 
   # TODO In original IceCast the connection is simpy closed (no http code returned
-  test "Timeout is triggered if body is not being sent", %{input_creds: input_creds} do
+  test "Timeout in source client and client is triggered if body is not being sent", %{input_creds: input_creds} do
     basic_auth = encode_user_pass(input_creds)
 
     input_port = Input.Listener.get_port!
@@ -176,9 +182,11 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
     client = HTTP.connect(output_port)
 
-    %{:status => 200} = make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+    %{:status => 200} =
+      make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
 
-    %{:status => 200} = make_req(client, "GET", "/my_mountpoint", [])
+    %{:status => 200} =
+      make_req(client, "GET", "/my_mountpoint", [])
 
     payload = "I love you, Romeo"
     payload2 = "I really do"
@@ -186,7 +194,8 @@ defmodule Membrane.Server.Icecast.ServerTest do
     source_client
     |> :gen_tcp.send(payload)
 
-    assert {:ok, ^payload} = :gen_tcp.recv(client, String.length(payload), @receive_timeout)
+    assert {:ok, ^payload} =
+      :gen_tcp.recv(client, String.length(payload), @receive_timeout)
 
     # Firstly we send the payload before the timeout goes off
     :timer.sleep(trunc(@body_timeout * 0.5))
@@ -199,9 +208,16 @@ defmodule Membrane.Server.Icecast.ServerTest do
     # Then we would like to send the payload too late
     wait_for_timeout(@body_timeout)
 
-    %{:status => 502, :headers => headers} = HTTP.get_http_response_status_headers(source_client)
+    %{:status => 502, :headers => source_headers} =
+      HTTP.get_http_response(source_client)
 
-    assert Enum.member?(headers, {"connection", "close"})
+    assert Enum.member?(source_headers, {"connection", "close"})
+
+    # Client is being disconnected
+    %{:status => 502, :headers => client_headers} = HTTP.get_http_response(client)
+
+    assert Enum.member?(client_headers, {"connection", "close"})
+
   end
 
   ###########
@@ -212,7 +228,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
     req_string = HTTP.request(method, mount, headers)
     :gen_tcp.send(conn, req_string)
 
-    HTTP.get_http_response_status_headers(conn)
+    HTTP.get_http_response(conn)
   end
 
   defp encode_user_pass({user, pass}) do
