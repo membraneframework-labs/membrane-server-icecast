@@ -22,6 +22,16 @@ defmodule Membrane.Server.Icecast.ServerTest do
     def registered?(user, pass), do: Agent.get(__MODULE__, fn users -> MapSet.member?(users, {user, pass}) end)
   end
 
+  defmodule MountDB do
+    def start_link, do: Agent.start(fn -> %{} end, name: __MODULE__)
+
+    def register(mount, proc), do: Agent.update(__MODULE__, fn mounts -> Map.put(mounts, mount, proc) end)
+
+    def unregister(mount), do: Agent.update(__MODULE__, fn mounts -> Map.delete(mounts, mount) end)
+
+    def get_proc(mount), do: Agent.get(__MODULE__, fn mounts -> Map.get(mounts, mount) end)
+  end
+
   defmodule InputTestController do
     use Membrane.Protocol.Icecast.Input.Controller
 
@@ -33,17 +43,18 @@ defmodule Membrane.Server.Icecast.ServerTest do
       {:ok, {:allow, controller_state}}
     end
 
-    def handle_source(_address, _method, _format, _mount, user, pass, _headers, state) do
+    def handle_source(_address, _method, _format, mount, user, pass, _headers, state) do
       case UsersDB.registered?(user, pass) do
         true ->
-          {:ok, {:allow, state}}
+          {:ok, {:allow, %{my_mount: mount}}}
         false ->
           {:ok, {:deny, :unauthorized}}
       end
     end
 
-    def handle_payload(_address, payload, state) do
-      send(:output_machine_proc, {:payload, payload})
+    def handle_payload(_address, payload, %{my_mount: my_mount} = state) do
+      output_proc = MountDB.get_proc(my_mount)
+      send(output_proc, {:payload, payload})
 
       {:ok, {:continue, state}}
     end
@@ -65,7 +76,6 @@ defmodule Membrane.Server.Icecast.ServerTest do
   defmodule OutputTestController do
 
     def handle_init(arg) do
-      :erlang.register(:output_machine_proc, self())
       {:ok, arg}
     end
 
@@ -73,11 +83,13 @@ defmodule Membrane.Server.Icecast.ServerTest do
       {:ok, {:allow, state}}
     end
 
-    def handle_listener(_address, _mount, _headers, state) do
-      {:ok, {:allow, state}}
+    def handle_listener(_address, mount, _headers, state) do
+      MountDB.register(mount, self())
+      {:ok, {:allow, %{my_mount: mount}}}
     end
 
-    def handle_closed(_address, _state) do
+    def handle_closed(_address, %{my_mount: my_mount} = _state) do
+      MountDB.unregister(my_mount)
       :ok
     end
 
@@ -95,6 +107,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
   setup_all do
     
     UsersDB.start_link()
+    MountDB.start_link()
 
     Application.put_env(:membrane_server_icecast, :input_machine, InputMachine)
     Application.put_env(:membrane_server_icecast, :output_machine, OutputMachine)
