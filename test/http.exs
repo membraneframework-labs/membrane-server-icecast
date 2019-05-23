@@ -20,6 +20,8 @@ defmodule Membrane.Server.Icecast.HTTP do
     conn
   end
 
+  def disconnect(socket), do: :gen_tcp.close(socket)
+
   @doc """
   This function waits for http header and headers to come.
   It does not include the body.

@@ -149,79 +149,68 @@ defmodule Membrane.Server.Icecast.ServerTest do
     end
   end
 
-  setup do
-    {user, pass} = {unique("Juliet"), "I<3Romeo"}
-    UsersDB.register(user, pass)
+  
 
-    on_exit fn ->
-      UsersDB.unregister(user, pass)
+  describe "When client logged in and connection established" do
+
+    setup do
+      {user, pass} = creds = {unique("Juliet"), "I<3Romeo"}
+      UsersDB.register(user, pass)
+
+      input_port = Input.Listener.get_port!
+      output_port = Output.Listener.get_port!
+      source_client = HTTP.connect(input_port)
+      client = HTTP.connect(output_port)
+
+      on_exit fn ->
+        UsersDB.unregister(user, pass)
+        HTTP.disconnect(source_client)
+        HTTP.disconnect(client)
+      end
+
+      %{mount: unique("/somemount"), source_client: {source_client, creds}, client: client}
     end
 
-    %{input_creds: {user, pass}, mount: unique("/somemount")}
-  end
+    test "Payload can be streamed successfully", %{source_client: {source_client, input_creds}, client: client, mount: mount} do
+      basic_auth = encode_user_pass(input_creds)
+
+      assert %{status: 200} =
+        make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
 
 
+      assert %{status: 200} =
+        make_req(client, "GET", mount, [])
 
-  test "Payload can be streamed successfully", %{input_creds: input_creds, mount: mount} do
-    basic_auth = encode_user_pass(input_creds)
+      payload = "I love you, Romeo"
 
-    input_port = Input.Listener.get_port!
-    output_port = Output.Listener.get_port!
+      source_client
+      |> :gen_tcp.send(payload)
 
-    source_client = HTTP.connect(input_port)
+      assert {:ok, payload} == :gen_tcp.recv(client, String.length(payload), @receive_timeout)
+    end
 
-    client = HTTP.connect(output_port)
+    # TODO In original IceCast the connection is simpy closed (no http code returned)
+    test "If nothing is streamed on mountpoint client gets 404 with html", %{client: client} do
 
-    assert %{status: 200} =
-      make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+      assert %{status: 404, headers: headers} =
+        make_req(client, "GET", "/nonexistent_mountpoint", [])
 
+      assert headers |> Enum.member?({"content-type", "text/html"})
+      assert headers |> Enum.member?({"connection", "close"})
+    end
 
-    assert %{status: 200} =
-      make_req(client, "GET", mount, [])
+    test "User with wrong password cannot stream", %{source_client: {source_client, input_creds}, mount: mount} do
+      {user, _} = input_creds
+      basic_auth = encode_user_pass({user, "SomeWrongPassword"})
 
-    payload = "I love you, Romeo"
+      %{status: 401} =
+        make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+    end
 
-    source_client
-    |> :gen_tcp.send(payload)
-
-    assert {:ok, payload} == :gen_tcp.recv(client, String.length(payload), @receive_timeout)
-  end
-
-  # TODO In original IceCast the connection is simpy closed (no http code returned)
-  test "If nothing is streamed on mountpoint client gets 404 with html" do
-    output_port = Output.Listener.get_port!
-
-    client = HTTP.connect(output_port)
-
-    assert %{status: 404, headers: headers} =
-      make_req(client, "GET", "/nonexistent_mountpoint", [])
-
-    assert headers |> Enum.member?({"content-type", "text/html"})
-    assert headers |> Enum.member?({"connection", "close"})
-  end
-
-  test "User with wrong password cannot stream", %{input_creds: input_creds, mount: mount} do
-    {user, _} = input_creds
-    basic_auth = encode_user_pass({user, "SomeWrongPassword"})
-  
-    input_port = Input.Listener.get_port!
-  
-    source_client = HTTP.connect(input_port)
-  
-    %{status: 401} =
-      make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
-  end
 
   # TODO In original IceCast the connection is simpy closed (no http code returned
-  test "Timeout in source client and client is triggered if body is not being sent", %{input_creds: input_creds, mount: mount} do
+  test "Timeout in source client and client is triggered if body is not being sent", %{source_client: {source_client, input_creds}, client: client, mount: mount} do
     basic_auth = encode_user_pass(input_creds)
-
-    input_port = Input.Listener.get_port!
-    output_port = Output.Listener.get_port!
-
-    source_client = HTTP.connect(input_port)
-
-    client = HTTP.connect(output_port)
 
     %{status: 200} =
       make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
@@ -261,15 +250,9 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
   end
 
-  test "mp3 file can be streamed", %{input_creds: input_creds, mount: mount} do
+
+  test "mp3 file can be streamed", %{source_client: {source_client, input_creds}, client: client, mount: mount} do
     basic_auth = encode_user_pass(input_creds)
-
-    input_port = Input.Listener.get_port!
-    output_port = Output.Listener.get_port!
-
-    source_client = HTTP.connect(input_port)
-
-    client = HTTP.connect(output_port)
 
     %{status: 200} =
       make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
@@ -280,7 +263,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
     assert headers |> Enum.member?({"content-type", "audio/mpeg"})
 
     {:ok, payload} = File.read(@mp3_path)
-    
+
     source_client
     |> :gen_tcp.send(payload)
 
@@ -288,15 +271,8 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
   end
 
-  test "ogg file can be streamed", %{input_creds: input_creds, mount: mount} do
+  test "ogg file can be streamed", %{source_client: {source_client, input_creds}, client: client, mount: mount} do
     basic_auth = encode_user_pass(input_creds)
-
-    input_port = Input.Listener.get_port!
-    output_port = Output.Listener.get_port!
-
-    source_client = HTTP.connect(input_port)
-
-    client = HTTP.connect(output_port)
 
     %{status: 200} =
       make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/ogg"}, {"Authorization", basic_auth}])
@@ -307,63 +283,80 @@ defmodule Membrane.Server.Icecast.ServerTest do
     assert headers |> Enum.member?({"content-type", "audio/ogg"})
 
     {:ok, payload} = File.read(@ogg_path)
-    
+
     source_client
     |> :gen_tcp.send(payload)
 
     {:ok, ^payload} = :gen_tcp.recv(client, byte_size(payload), @receive_timeout)
   end
 
-  test "Multiple source clients on the same mount are not allowed", %{input_creds: input_creds, mount: mount} do
-    basic_auth = encode_user_pass(input_creds)
-    second_user = "seconduser"
-    second_pass = "seconduserpass"
-    UsersDB.register(second_user, second_pass)
-    basic_auth2 = encode_user_pass({second_user, second_pass})
-
-    input_port = Input.Listener.get_port!
-
-    source_client = HTTP.connect(input_port)
-    source_client2 = HTTP.connect(input_port)
-
-    %{status: 200} =
-      make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
-    
-    %{status: 401} =
-      make_req(source_client2, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth2}])
-    
-  end 
-
-  test "Multiple clients on the same mount are allowed", %{input_creds: input_creds, mount: mount} do
-    basic_auth = encode_user_pass(input_creds)
-
-    input_port = Input.Listener.get_port!
-    output_port = Output.Listener.get_port!
-
-    source_client = HTTP.connect(input_port)
-
-    %{status: 200} =
-      make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
-
-    clients =
-    1..3
-    |> Enum.map(fn _ -> HTTP.connect(output_port) end)
-
-    assert clients
-    |> Enum.map(fn client -> make_req(client, "GET", mount, []) end)
-    |> Enum.all?(fn %{status: status} -> status == 200 end)
-
-    payload = "I love you, Romeo"
-
-    source_client
-    |> :gen_tcp.send(payload)
-
-    assert clients
-    |> Enum.map(fn client -> :gen_tcp.recv(client, String.length(payload), @receive_timeout) end)
-    |> Enum.all?(fn resp -> resp == {:ok, payload} end)
   end
 
+  describe "No connections made" do
 
+    setup do
+      {user, pass} = {unique("Juliet"), "I<3Romeo"}
+      UsersDB.register(user, pass)
+      {user2, pass2} = {"seconduser", "seconduserpass"}
+      UsersDB.register(user2, pass2)
+
+
+      on_exit fn ->
+        UsersDB.unregister(user, pass)
+        UsersDB.unregister(user2, pass2)
+      end
+
+      %{input_creds: [{user, pass}, {user2, pass2}], mount: unique("/somemount")}
+    end
+
+    test "Multiple source clients on the same mount are not allowed", %{input_creds: [input_creds, input_creds2], mount: mount} do
+      basic_auth = encode_user_pass(input_creds)
+      basic_auth2 = encode_user_pass(input_creds2)
+
+      input_port = Input.Listener.get_port!
+
+      source_client = HTTP.connect(input_port)
+      source_client2 = HTTP.connect(input_port)
+
+      %{status: 200} =
+        make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+
+      %{status: 401} =
+        make_req(source_client2, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth2}])
+
+    end 
+
+    test "Multiple clients on the same mount are allowed", %{input_creds: [input_creds|_], mount: mount} do
+      basic_auth = encode_user_pass(input_creds)
+
+      input_port = Input.Listener.get_port!
+      output_port = Output.Listener.get_port!
+
+      source_client = HTTP.connect(input_port)
+
+      %{status: 200} =
+        make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+
+      clients =
+        1..3
+        |> Enum.map(fn _ -> HTTP.connect(output_port) end)
+
+      assert clients
+      |> Enum.map(fn client -> make_req(client, "GET", mount, []) end)
+      |> Enum.all?(fn %{status: status} -> status == 200 end)
+
+      payload = "I love you, Romeo"
+
+      source_client
+      |> :gen_tcp.send(payload)
+
+      assert clients
+      |> Enum.map(fn client -> :gen_tcp.recv(client, String.length(payload), @receive_timeout) end)
+      |> Enum.all?(fn resp -> resp == {:ok, payload} end)
+    end
+
+
+  end
 
   ###########
   # Helpers #
