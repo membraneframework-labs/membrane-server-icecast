@@ -77,7 +77,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
       {:ok, {:allow, state}}
     end
 
-    def handle_closed(_address, state) do
+    def handle_closed(_address, _state) do
       :ok
     end
 
@@ -85,7 +85,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
       {:ok, state}
     end
 
-    def handle_invalid(_address, _reason, state) do
+    def handle_invalid(_address, _reason, _state) do
       :ok
     end
 
@@ -145,7 +145,6 @@ defmodule Membrane.Server.Icecast.ServerTest do
   end
 
   test "If nothing is streamed on mountpoint client hangs waiting for content" do
-    input_port = Input.Listener.get_port!
     output_port = Output.Listener.get_port!
 
     client = HTTP.connect(output_port)
@@ -160,11 +159,8 @@ defmodule Membrane.Server.Icecast.ServerTest do
     basic_auth = encode_user_pass({user, "SomeWrongPassword"})
   
     input_port = Input.Listener.get_port!
-    output_port = Output.Listener.get_port!
   
     source_client = HTTP.connect(input_port)
-  
-    client = HTTP.connect(output_port)
   
     %{:status => 401} = make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
   end
@@ -173,7 +169,6 @@ defmodule Membrane.Server.Icecast.ServerTest do
   test "Timeout is triggered if body is not being sent", %{input_creds: input_creds} do
     basic_auth = encode_user_pass(input_creds)
 
-        
     input_port = Input.Listener.get_port!
     output_port = Output.Listener.get_port!
 
@@ -199,7 +194,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
     source_client
     |> :gen_tcp.send(payload2)
 
-    {:ok, payload2} = :gen_tcp.recv(client, String.length(payload2), @receive_timeout)
+    {:ok, ^payload2} = :gen_tcp.recv(client, String.length(payload2), @receive_timeout)
 
     # Then we would like to send the payload too late
     wait_for_timeout(@body_timeout)
@@ -208,8 +203,6 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
     assert Enum.member?(headers, {"connection", "close"})
   end
-
-
 
   ###########
   # Helpers #
