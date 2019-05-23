@@ -1,6 +1,7 @@
 defmodule Membrane.Server.Icecast.HTTP do
 
   @end_of_line "\r\n"
+  @receive_timeout 500
 
   def request(method, path, headers, ver \\ "1.0") do
     http_header(method, path, ver) <> http_headers(headers) <> "\r\n"
@@ -19,8 +20,12 @@ defmodule Membrane.Server.Icecast.HTTP do
     conn
   end
 
-  def get_http_response_status_headers(conn) do
-    {:ok, data} = :gen_tcp.recv(conn, 0)
+  @doc """
+  This function waits for http header and headers to come.
+  It does not include the body.
+  """
+  def get_http_response(conn) do
+    {:ok, data} = :gen_tcp.recv(conn, 0, @receive_timeout)
 
     {:ok, {version, status, reason}, rest} = fetch_status_line(conn, data)
     {headers, rest} = fetch_headers(conn, rest)
@@ -36,7 +41,7 @@ defmodule Membrane.Server.Icecast.HTTP do
       {:ok, {:http_response, version, status, reason}, rest} ->
         {:ok, {version, status, reason}, rest}
       {:more, len} ->
-        rest = :gen_tcp.recv(conn, len)
+        rest = :gen_tcp.recv(conn, len |> len2int(), @receive_timeout)
         fetch_status_line(conn, binary <> rest)
       _ ->
         :error
@@ -48,8 +53,8 @@ defmodule Membrane.Server.Icecast.HTTP do
       {:ok, :eof, rest} ->
         {acc, rest}
       {:more, len} ->
-        rest = :gen_tcp.recv(conn, len)
-        fetch_headers(conn, rest, acc)
+        {:ok, rest} = :gen_tcp.recv(conn, len |> len2int(), @receive_timeout)
+        fetch_headers(conn, data <> rest, acc)
       {:ok, h, rest} ->
         fetch_headers(conn, rest, [h | acc])
     end
@@ -61,10 +66,15 @@ defmodule Membrane.Server.Icecast.HTTP do
         {:ok, {header_name(name), value}, rest}
       {:ok, :http_eoh, rest} ->
         {:ok, :eof, rest}
+      {:more, _} = m ->
+        m
     end
   end
 
   defp header_name(atom) when is_atom(atom), do: atom |> Atom.to_string() |> String.downcase
   defp header_name(binary) when is_binary(binary), do: binary |> String.downcase
+
+  defp len2int(:undefined), do: 0
+  defp len2int(len), do: len
 
 end
