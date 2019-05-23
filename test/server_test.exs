@@ -10,6 +10,9 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
   @receive_timeout 500
   @body_timeout 200
+
+  @mp3_path "test/mp3_sample.mp3"
+  @ogg_path "test/ogg_sample.ogg"
   
   defmodule UsersDB do
 
@@ -25,11 +28,24 @@ defmodule Membrane.Server.Icecast.ServerTest do
   defmodule MountDB do
     def start_link, do: Agent.start(fn -> %{} end, name: __MODULE__)
 
-    def register(mount, proc), do: Agent.update(__MODULE__, fn mounts -> Map.put(mounts, mount, proc) end)
+    def set_format(mount, format), do: Agent.update(__MODULE__, fn mounts -> Map.put(mounts, mount, {format, :undefined}) end)
+
+    def set_proc(mount, proc) do
+      prev = Agent.get(__MODULE__, fn mounts -> Map.get(mounts, mount) end)
+      case prev do
+        nil ->
+          {:error, :not_found}
+        {format, :undefined} ->
+          Agent.update(__MODULE__, fn mounts -> Map.put(mounts, mount, {format, proc}) end)
+          :ok
+      end
+    end
 
     def unregister(mount), do: Agent.update(__MODULE__, fn mounts -> Map.delete(mounts, mount) end)
 
-    def get_proc(mount), do: Agent.get(__MODULE__, fn mounts -> Map.get(mounts, mount) end)
+    def get_proc(mount), do: Agent.get(__MODULE__, fn mounts -> mounts |> Map.get(mount) |> elem(1) end)
+
+    def get_format(mount), do: Agent.get(__MODULE__, fn mounts -> mounts |> Map.get(mount) |> elem(0) end)
   end
 
   defmodule InputTestController do
@@ -43,9 +59,10 @@ defmodule Membrane.Server.Icecast.ServerTest do
       {:ok, {:allow, controller_state}}
     end
 
-    def handle_source(_address, _method, _format, mount, user, pass, _headers, state) do
+    def handle_source(_address, _method, format, mount, user, pass, _headers, state) do
       case UsersDB.registered?(user, pass) do
         true ->
+          MountDB.set_format(mount, format)
           {:ok, {:allow, %{my_mount: mount}}}
         false ->
           {:ok, {:deny, :unauthorized}}
@@ -84,12 +101,20 @@ defmodule Membrane.Server.Icecast.ServerTest do
     end
 
     def handle_listener(_address, mount, _headers, state) do
-      MountDB.register(mount, self())
-      {:ok, {:allow, %{my_mount: mount}}}
+      case MountDB.set_proc(mount, self()) do
+        :ok ->
+          format = MountDB.get_format(mount)
+          {:ok, {:allow, %{my_mount: mount}}, format}
+        {:error, :not_found} ->
+          {:ok, {:deny, :not_found}}
+      end
     end
 
     def handle_closed(_address, %{my_mount: my_mount} = _state) do
       MountDB.unregister(my_mount)
+      :ok
+    end
+    def handle_closed(_address, %{my_mount: my_mount} = _state) do
       :ok
     end
 
@@ -160,16 +185,16 @@ defmodule Membrane.Server.Icecast.ServerTest do
   end
 
   # TODO In original IceCast the connection is simpy closed (no http code returned)
-  test "If nothing is streamed on mountpoint client timeouts" do
+  test "If nothing is streamed on mountpoint client gets 404 with html" do
     output_port = Output.Listener.get_port!
 
     client = HTTP.connect(output_port)
 
-    %{:status => 200} =
+    assert %{:status => 404, :headers => headers} =
       make_req(client, "GET", "/nonexistent_mountpoint", [])
 
-    assert %{:status => 502} =
-      HTTP.get_http_response(client)
+    assert headers |> Enum.member?({"content-type", "text/html"})
+    assert headers |> Enum.member?({"connection", "close"})
   end
 
   test "User with wrong password cannot stream", %{input_creds: input_creds} do
@@ -232,6 +257,61 @@ defmodule Membrane.Server.Icecast.ServerTest do
     assert Enum.member?(client_headers, {"connection", "close"})
 
   end
+
+  test "mp3 file can be streamed", %{input_creds: input_creds} do
+    basic_auth = encode_user_pass(input_creds)
+
+    input_port = Input.Listener.get_port!
+    output_port = Output.Listener.get_port!
+
+    source_client = HTTP.connect(input_port)
+
+    client = HTTP.connect(output_port)
+
+    %{:status => 200} =
+      make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+
+    %{:status => 200, :headers => headers} =
+      make_req(client, "GET", "/my_mountpoint", [])
+
+    assert headers |> Enum.member?({"content-type", "audio/mpeg"})
+
+    {:ok, payload} = File.read(@mp3_path)
+    
+    source_client
+    |> :gen_tcp.send(payload)
+
+    {:ok, ^payload} = :gen_tcp.recv(client, byte_size(payload), @receive_timeout)
+
+  end
+
+  test "ogg file can be streamed", %{input_creds: input_creds} do
+    basic_auth = encode_user_pass(input_creds)
+
+    input_port = Input.Listener.get_port!
+    output_port = Output.Listener.get_port!
+
+    source_client = HTTP.connect(input_port)
+
+    client = HTTP.connect(output_port)
+
+    %{:status => 200} =
+      make_req(source_client, "SOURCE", "/my_mountpoint", [{"Content-Type", "audio/ogg"}, {"Authorization", basic_auth}])
+
+    %{:status => 200, :headers => headers} =
+      make_req(client, "GET", "/my_mountpoint", [])
+
+    assert headers |> Enum.member?({"content-type", "audio/ogg"})
+
+    {:ok, payload} = File.read(@ogg_path)
+    
+    source_client
+    |> :gen_tcp.send(payload)
+
+    {:ok, ^payload} = :gen_tcp.recv(client, byte_size(payload), @receive_timeout)
+  end
+
+
 
   ###########
   # Helpers #
