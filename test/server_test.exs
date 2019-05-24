@@ -8,8 +8,8 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
   alias Membrane.Server.Icecast.HTTP
 
-  @receive_timeout 500
-  @body_timeout 200
+  @receive_timeout 50
+  @body_timeout 300
 
   @mp3_path "test/mp3_sample.mp3"
   @ogg_path "test/ogg_sample.ogg"
@@ -287,6 +287,32 @@ defmodule Membrane.Server.Icecast.ServerTest do
     assert Enum.member?(client_headers, {"connection", "close"})
 
   end
+
+  test "Timeout is not triggered if body is sent before the body_timeout",
+  %{source_client: {source_client, input_creds}, client: client, mount: mount} do
+    basic_auth = encode_user_pass(input_creds)
+
+    %{status: 200} =
+      make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+
+    %{status: 200} =
+      make_req(client, "GET", mount, [])
+
+    payload = "I love you, Romeo"
+
+    for _ <- 1..3 do
+      source_client
+      |> :gen_tcp.send(payload)
+
+      assert {:ok, ^payload} =
+        :gen_tcp.recv(client, String.length(payload), @receive_timeout)
+
+      :timer.sleep(trunc(@body_timeout * 0.6))
+    end
+
+  end
+
+
 
 
   test "mp3 file can be streamed", %{source_client: {source_client, input_creds}, client: client, mount: mount} do
