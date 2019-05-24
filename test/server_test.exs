@@ -26,28 +26,63 @@ defmodule Membrane.Server.Icecast.ServerTest do
   end
 
   defmodule MountDB do
+
+    defstruct format: nil, procs: []
+
     def start_link, do: Agent.start(fn -> %{} end, name: __MODULE__)
 
-    def set_format(mount, format), do: Agent.update(__MODULE__, fn mounts -> Map.put(mounts, mount, {format, []}) end)
+    def set_format(mount, format) do
+      mountinfo = get(mount, %__MODULE__{})
+      new_mountinfo = %__MODULE__{mountinfo | format: format}
+      put(mount, new_mountinfo)
+    end
 
     def set_proc(mount, proc) do
-      prev = Agent.get(__MODULE__, fn mounts -> Map.get(mounts, mount) end)
+      prev = get(mount)
       case prev do
         nil ->
           {:error, :not_found}
-        {format, procs} ->
-          Agent.update(__MODULE__, fn mounts -> Map.put(mounts, mount, {format, [proc | procs]}) end)
+        %__MODULE__{procs: procs} = mount_info ->
+          new_mountinfo = %__MODULE__{mount_info | procs: [proc | procs]}
+          put(mount, new_mountinfo)
           :ok
       end
     end
 
     def unregister(mount), do: Agent.update(__MODULE__, fn mounts -> Map.delete(mounts, mount) end)
 
-    def get_procs(mount), do: Agent.get(__MODULE__, fn mounts -> mounts |> Map.get(mount) |> elem(1) end)
+    def unregister(mount, proc) do
+      mountinfo = get(mount)
+      case mountinfo do
+        %__MODULE__{procs: procs} ->
+          new_procs = List.delete(procs, proc)
+          new_mountinfo = %__MODULE__{mountinfo | procs: new_procs}
+          put(mount, new_mountinfo)
+        nil -> # already unregistered
+          :ok
+      end
+    end
 
-    def get_format(mount), do: Agent.get(__MODULE__, fn mounts -> mounts |> Map.get(mount) |> elem(0) end)
+    def get_procs(mount) do
+      mountinfo = get(mount)
+      case mountinfo do
+        nil -> []
+        %__MODULE__{procs: procs} -> procs
+      end
+    end
 
-    def mount_free?(mount), do: Agent.get(__MODULE__, fn mounts -> mounts |> Map.get(mount) end) == nil
+    def get_format(mount) do
+      %__MODULE__{format: format} = get(mount)
+      format
+    end
+
+    def mount_free?(mount) do
+      get(mount) == nil
+    end
+
+    defp get(mount, default \\ nil), do: Agent.get(__MODULE__, &(Map.get(&1, mount, default)))
+
+    defp put(mount, mountinfo), do: Agent.update(__MODULE__, &(Map.put(&1, mount, mountinfo)))
   end
 
   defmodule InputTestController do
@@ -117,7 +152,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
     end
 
     def handle_closed(_address, %{my_mount: my_mount} = _state) do
-      MountDB.unregister(my_mount)
+      MountDB.unregister(my_mount, self())
       :ok
     end
     def handle_closed(_address, _state) do
@@ -143,8 +178,8 @@ defmodule Membrane.Server.Icecast.ServerTest do
     Application.put_env(:membrane_server_icecast, :input_machine, InputMachine)
     Application.put_env(:membrane_server_icecast, :output_machine, OutputMachine)
 
-    {:ok, _} = Output.Listener.start_listener(0, OutputTestController, nil, body_timeout: @body_timeout)
-    {:ok, _} = Input.Listener.start_listener(0, InputTestController, nil, body_timeout: @body_timeout)
+    {:ok, _} = Output.Listener.start_listener(3000, OutputTestController, nil, body_timeout: @body_timeout)
+    {:ok, _} = Input.Listener.start_listener(4000, InputTestController, nil, body_timeout: @body_timeout)
 
     on_exit fn ->
       # TODO
@@ -182,6 +217,43 @@ defmodule Membrane.Server.Icecast.ServerTest do
         make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
 
       HTTP.disconnect(source_client)
+
+    end
+
+    test "Client reconnecting", %{input_creds: input_creds, mount: mount} do
+      basic_auth = encode_user_pass(input_creds)
+      input_port = Input.Listener.get_port!
+      output_port = Output.Listener.get_port!
+
+      source_client = HTTP.connect(input_port)
+      client = HTTP.connect(output_port)
+
+      streaming_interval = 10
+
+      %{status: 200} =
+        make_req(source_client, "SOURCE", mount, [{"Content-Type", "audio/mpeg"}, {"Authorization", basic_auth}])
+
+      payload = "I love you romeo"
+
+      stream_pid = start_streaming(source_client, payload, streaming_interval)
+
+      %{status: 200} =
+        make_req(client, "GET", mount, [])
+
+      assert {:ok, ^payload} = :gen_tcp.recv(client, String.length(payload))
+
+      HTTP.disconnect(client)
+
+      :timer.sleep(3 * streaming_interval)
+
+      client = HTTP.connect(output_port)
+
+      %{status: 200} =
+        make_req(client, "GET", mount, [])
+
+      assert {:ok, ^payload} = :gen_tcp.recv(client, String.length(payload))
+
+      stop_streaming(stream_pid)
 
     end
 
@@ -442,5 +514,18 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
   defp wait_for_timeout(timeout, eps \\ 50), do: :timer.sleep(timeout + eps)
 
+  defp start_streaming(socket, payload, interval \\ 10), do: spawn_link(fn -> stream_loop(socket, payload, interval) end)
+
+  defp stop_streaming(ref), do: send(ref, :stop_stream)
+
+  defp stream_loop(socket, payload, interval) do
+    receive do
+      :stop_stream ->
+        :ok
+    after interval ->
+        :gen_tcp.send(socket, payload)
+        stream_loop(socket, payload, interval)
+    end
+  end
 
 end
