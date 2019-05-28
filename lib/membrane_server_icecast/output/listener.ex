@@ -84,11 +84,11 @@ defmodule Membrane.Server.Icecast.Output.Listener do
 
     :ranch.start_listener(
       ranch_ref,
-      :ranch_tcp, [
-        port: port,
+      :ranch_tcp, %{
+        socket_opts: [port: port],
         max_connections: max_connections,
         num_acceptors: num_acceptors,
-      ],
+      },
       Membrane.Server.Icecast.Output.Protocol,
       {
         controller_module,
