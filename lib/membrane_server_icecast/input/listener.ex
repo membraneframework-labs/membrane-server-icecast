@@ -99,11 +99,11 @@ defmodule Membrane.Server.Icecast.Input.Listener do
 
     :ranch.start_listener(
       ranch_ref,
-      :ranch_tcp, [
-        port: port,
+      :ranch_tcp, %{
+        socket_opts: [port: port],
         max_connections: max_connections,
         num_acceptors: num_acceptors,
-      ],
+      },
       Membrane.Server.Icecast.Input.Protocol,
       {
         controller_module,
