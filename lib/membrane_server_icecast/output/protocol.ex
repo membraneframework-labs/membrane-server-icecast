@@ -1,6 +1,4 @@
 defmodule Membrane.Server.Icecast.Output.Protocol do
-  alias Membrane.Server.Icecast.Output.Machine
-
   @behaviour :ranch_protocol
 
   @impl true

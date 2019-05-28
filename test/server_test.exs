@@ -514,7 +514,7 @@ defmodule Membrane.Server.Icecast.ServerTest do
 
   defp wait_for_timeout(timeout, eps \\ 50), do: :timer.sleep(timeout + eps)
 
-  defp start_streaming(socket, payload, interval \\ 10), do: spawn_link(fn -> stream_loop(socket, payload, interval) end)
+  defp start_streaming(socket, payload, interval), do: spawn_link(fn -> stream_loop(socket, payload, interval) end)
 
   defp stop_streaming(ref), do: send(ref, :stop_stream)
 
