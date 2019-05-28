@@ -1,4 +1,5 @@
 %{
+  "membrane_protocol_icecast": {:git, "https://github.com/membraneframework/membrane-protocol-icecast", "e6d9f54b2d6d79d570a65cf156fa4cd33f0185f7", [tag: "e6d9f54b2d6d79d570a65cf156fa4cd33f0185f7"]},
   "mint": {:hex, :mint, "0.2.1", "a2ec8729fcad5c8b6460e07dfa64b008b3d9697a9f4604cd5684a87b44677c99", [:mix], [{:castore, "~> 0.1.0", [hex: :castore, repo: "hexpm", optional: true]}], "hexpm"},
   "ranch": {:hex, :ranch, "1.7.1", "6b1fab51b49196860b733a49c07604465a47bdb78aa10c1c16a3d199f7f8c881", [:rebar3], [], "hexpm"},
 }
