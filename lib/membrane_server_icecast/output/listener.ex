@@ -51,43 +51,58 @@ defmodule Membrane.Server.Icecast.Output.Listener do
 
   For more information see https://ninenines.eu/docs/en/ranch/1.7/guide/listeners/
   """
-  @spec start_listener(:inet.port, module, any, [
-    ranch_ref: :ranch.ref,
-    max_connections: pos_integer,
-    num_acceptors: pos_integer,
-    server_string: String.t,
-    request_timeout: timeout,
-    body_timeout: timeout,
-  ]) :: {:ok, pid} | {:error, any}
+  @spec start_listener(:inet.port(), module, any,
+          ranch_ref: :ranch.ref(),
+          max_connections: pos_integer,
+          num_acceptors: pos_integer,
+          server_string: String.t(),
+          request_timeout: timeout,
+          body_timeout: timeout
+        ) :: {:ok, pid} | {:error, any}
   def start_listener(port, controller_module, controller_arg \\ nil, options \\ []) do
     ranch_ref = Keyword.get(options, :ranch_ref, @default_ranch_ref)
-    if not is_atom(ranch_ref), do: raise ":ranch_ref listener option must be an atom"
+    if not is_atom(ranch_ref), do: raise(":ranch_ref listener option must be an atom")
 
     max_connections = Keyword.get(options, :max_connections, 1024)
-    if not is_number(max_connections), do: raise ":max_connections listener option must be a number"
-    if max_connections <= 0, do: raise ":max_connections listener option must be greater than zero"
+
+    if not is_number(max_connections),
+      do: raise(":max_connections listener option must be a number")
+
+    if max_connections <= 0,
+      do: raise(":max_connections listener option must be greater than zero")
 
     num_acceptors = Keyword.get(options, :num_acceptors, 10)
-    if not is_number(num_acceptors), do: raise ":num_acceptors listener option must be a number"
-    if num_acceptors <= 0, do: raise ":num_acceptors listener option must be greater than zero"
+    if not is_number(num_acceptors), do: raise(":num_acceptors listener option must be a number")
+    if num_acceptors <= 0, do: raise(":num_acceptors listener option must be greater than zero")
 
-    server_string = Keyword.get(options, :server_string, "Membrane.Server.Icecast.Output/#{Membrane.Server.Icecast.version!()}")
-    if not is_binary(server_string), do: raise ":server_string listener option must be a binary"
+    server_string =
+      Keyword.get(
+        options,
+        :server_string,
+        "Membrane.Server.Icecast.Output/#{Membrane.Server.Icecast.version!()}"
+      )
+
+    if not is_binary(server_string), do: raise(":server_string listener option must be a binary")
 
     request_timeout = Keyword.get(options, :request_timeout, 5000)
-    if not is_number(request_timeout), do: raise ":request_timeout listener option must be a list"
-    if request_timeout <= 0, do: raise ":request_timeout listener option must be greater than zero"
+
+    if not is_number(request_timeout),
+      do: raise(":request_timeout listener option must be a list")
+
+    if request_timeout <= 0,
+      do: raise(":request_timeout listener option must be greater than zero")
 
     body_timeout = Keyword.get(options, :body_timeout, 5000)
-    if not is_number(body_timeout), do: raise ":body_timeout listener option must be a list"
-    if body_timeout <= 0, do: raise ":body_timeout listener option must be greater than zero"
+    if not is_number(body_timeout), do: raise(":body_timeout listener option must be a list")
+    if body_timeout <= 0, do: raise(":body_timeout listener option must be greater than zero")
 
     :ranch.start_listener(
       ranch_ref,
-      :ranch_tcp, %{
+      :ranch_tcp,
+      %{
         socket_opts: [port: port],
         max_connections: max_connections,
-        num_acceptors: num_acceptors,
+        num_acceptors: num_acceptors
       },
       Membrane.Server.Icecast.Output.Protocol,
       {
@@ -95,7 +110,7 @@ defmodule Membrane.Server.Icecast.Output.Listener do
         controller_arg,
         server_string,
         request_timeout,
-        body_timeout,
+        body_timeout
       }
     )
   end
@@ -108,7 +123,7 @@ defmodule Membrane.Server.Icecast.Output.Listener do
   If you have passed custom `ranch_ref` option to the `start_listener/4` you
   need to pass it also here.
   """
-  @spec get_port!(:ranch.ref) :: {:ok, :inet.port}
+  @spec get_port!(:ranch.ref()) :: {:ok, :inet.port()}
   def get_port!(ranch_ref \\ @default_ranch_ref) do
     :ranch.get_port(ranch_ref)
   end

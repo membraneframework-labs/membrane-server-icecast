@@ -23,7 +23,8 @@ defmodule Membrane.Server.Icecast.MixProject do
   defp deps do
     [
       {:ranch, "~> 1.7"},
-      {:membrane_protocol_icecast, git: "https://github.com/membraneframework/membrane-protocol-icecast", tag: "e6d9f54b2d6d79d570a65cf156fa4cd33f0185f7"},
+      {:membrane_protocol_icecast,
+       git: "https://github.com/membraneframework/membrane-protocol-icecast", tag: "initial"},
       {:mint, "~> 0.2.0", only: :test}
     ]
   end
