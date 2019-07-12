@@ -104,7 +104,12 @@ defmodule Membrane.Server.Icecast.ServerTest do
       {:ok, {:allow, controller_state}}
     end
 
-    def handle_source(_address, _method, format, mount, user, pass, _headers, _state) do
+    def handle_source(_address, _method, state, %{
+          format: format,
+          mount: mount,
+          username: user,
+          password: pass
+        }) do
       case UsersDB.registered?(user, pass) and MountDB.mount_free?(mount) do
         true ->
           MountDB.set_format(mount, format)

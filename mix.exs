@@ -24,7 +24,7 @@ defmodule Membrane.Server.Icecast.MixProject do
     [
       {:ranch, "~> 1.7"},
       {:membrane_protocol_icecast,
-       git: "https://github.com/membraneframework/membrane-protocol-icecast", tag: "initial"},
+       path: "/Users/dominikstanaszek/icecast/membrane-protocol-icecast/"},
       {:mint, "~> 0.2.0", only: :test}
     ]
   end
