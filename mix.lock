@@ -1,4 +1,5 @@
 %{
+  "dialyxir": {:hex, :dialyxir, "0.5.1", "b331b091720fd93e878137add264bac4f644e1ddae07a70bf7062c7862c4b952", [:mix], [], "hexpm"},
   "membrane_protocol_icecast": {:git, "https://github.com/membraneframework/membrane-protocol-icecast", "38552b6735848efe4a47c1b259438b152b9b9477", [tag: "initial"]},
   "mint": {:hex, :mint, "0.2.1", "a2ec8729fcad5c8b6460e07dfa64b008b3d9697a9f4604cd5684a87b44677c99", [:mix], [{:castore, "~> 0.1.0", [hex: :castore, repo: "hexpm", optional: true]}], "hexpm"},
   "ranch": {:hex, :ranch, "1.7.1", "6b1fab51b49196860b733a49c07604465a47bdb78aa10c1c16a3d199f7f8c881", [:rebar3], [], "hexpm"},

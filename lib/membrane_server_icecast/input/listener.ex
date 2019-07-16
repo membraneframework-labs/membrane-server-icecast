@@ -1,5 +1,5 @@
 defmodule Membrane.Server.Icecast.Input.Listener do
-  alias Membrane.Server.Icecast.Input.Types
+  alias Membrane.Server.Icecast.Types
 
   @default_ranch_ref :membrane_server_icecast_input
 
@@ -58,7 +58,7 @@ defmodule Membrane.Server.Icecast.Input.Listener do
 
   For more information see https://ninenines.eu/docs/en/ranch/1.7/guide/listeners/
   """
-  @spec start_listener(:inet.port(), module, any,
+  @spec start_listener(:inet.port_number(), module, any,
           ranch_ref: :ranch.ref(),
           max_connections: pos_integer,
           num_acceptors: pos_integer,
@@ -140,7 +140,7 @@ defmodule Membrane.Server.Icecast.Input.Listener do
   If you have passed custom `ranch_ref` option to the `start_listener/4` you
   need to pass it also here.
   """
-  @spec get_port!(:ranch.ref()) :: {:ok, :inet.port()}
+  @spec get_port!(:ranch.ref()) :: :inet.port_number()
   def get_port!(ranch_ref \\ @default_ranch_ref) do
     :ranch.get_port(ranch_ref)
   end

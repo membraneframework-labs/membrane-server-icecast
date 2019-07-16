@@ -25,7 +25,8 @@ defmodule Membrane.Server.Icecast.MixProject do
       {:ranch, "~> 1.7"},
       {:membrane_protocol_icecast,
        path: "/Users/dominikstanaszek/icecast/membrane-protocol-icecast/"},
-      {:mint, "~> 0.2.0", only: :test}
+      {:mint, "~> 0.2.0", only: :test},
+      {:dialyxir, "~> 0.4", only: [:dev]}
     ]
   end
 end

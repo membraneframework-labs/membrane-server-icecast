@@ -1,5 +1,5 @@
 defmodule Membrane.Server.Icecast.Types do
-  @type remote_address_t :: {:inet.ip(), :inet.port()}
+  @type remote_address_t :: {:inet.ip_address(), :inet.port_number()}
 
   @type format_t :: :mp3 | :ogg
   @type method_t :: :put | :source
